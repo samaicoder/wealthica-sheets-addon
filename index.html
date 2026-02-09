@@ -4,89 +4,189 @@
   <meta charset="utf-8">
   <title>Wealthica Excel Exporter</title>
   <style>
-    body { 
-      font-family: Arial, sans-serif; 
-      padding: 20px; 
-      max-width: 800px;
-      margin: 0 auto;
-    }
-    h2 { color: #333; }
-    .button-group {
-      margin: 20px 0;
-      padding: 20px;
-      background: #f8f9fa;
-      border-radius: 8px;
-    }
-    button { 
-      padding: 12px 24px; 
-      margin: 10px 10px 10px 0; 
-      font-size: 16px; 
-      cursor: pointer;
-      background: #5469d4;
-      color: white;
-      border: none;
-      border-radius: 5px;
-      font-weight: bold;
-    }
-    button:hover {
-      background: #4155b8;
-    }
-    button:disabled {
-      background: #ccc;
-      cursor: not-allowed;
-    }
-    #log { 
-      background: #f5f5f5; 
-      padding: 15px; 
-      border-radius: 5px; 
-      max-height: 400px; 
-      overflow-y: auto;
-      font-family: 'Courier New', monospace;
-      font-size: 13px;
-      margin-top: 20px;
-      border: 1px solid #ddd;
-    }
-    .success { color: #28a745; font-weight: bold; }
-    .error { color: #dc3545; font-weight: bold; }
-    .info { color: #17a2b8; }
-    .log-entry {
-      padding: 4px 0;
-      border-bottom: 1px solid #e9ecef;
-    }
-    .status {
-      display: inline-block;
-      padding: 8px 15px;
-      background: #fff3cd;
-      border: 1px solid #ffc107;
-      border-radius: 5px;
-      margin: 10px 0;
-    }
+    body { font-family: Arial, sans-serif; padding: 20px; max-width: 800px; margin: 0 auto; }
+    button { padding: 12px 24px; margin: 10px 5px; font-size: 16px; cursor: pointer; background: #5469d4; color: white; border: none; border-radius: 5px; }
+    button:disabled { background: #ccc; cursor: not-allowed; }
+    #log { background: #f5f5f5; padding: 15px; border-radius: 5px; max-height: 400px; overflow-y: auto; margin-top: 20px; border: 1px solid #ddd; font-size: 13px; }
+    .success { color: green; font-weight: bold; }
+    .error { color: red; font-weight: bold; }
   </style>
 </head>
 <body>
   <h2>📊 Wealthica Excel Exporter</h2>
-  
-  <div class="status">
-    <strong>Status:</strong> <span id="status">Loading libraries...</span>
+  <div id="status">Loading...</div>
+  <div>
+    <button id="btn-transactions" disabled>Download Transactions</button>
+    <button id="btn-positions" disabled>Download Positions</button>
+    <button id="btn-all" disabled>Download All</button>
   </div>
-
-  <div class="button-group">
-    <h3>Export Options:</h3>
-    <button id="export-transactions" disabled>📥 Download Transactions (Excel)</button>
-    <button id="export-positions" disabled>📥 Download Positions (Excel)</button>
-    <button id="export-all" disabled>📥 Download All Data (Excel)</button>
-  </div>
-
-  <h3>Activity Log:</h3>
   <div id="log"></div>
 
-  <!-- Load Wealthica addon library -->
+  <!-- Excel library -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  
+  <!-- Wealthica addon - MUST load from their CDN -->
   <script src="https://wealthica.github.io/wealthica.js/addon/addon.js"></script>
   
-  <!-- Load Excel library -->
-  <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
-  
-  <!-- Load our app -->
-  <script src="app.js"></script>
+  <!-- Our code -->
+  <script>
+    (function() {
+      var log = function(msg, type) {
+        var el = document.getElementById('log');
+        var div = document.createElement('div');
+        div.className = type || '';
+        div.textContent = new Date().toLocaleTimeString() + ' - ' + msg;
+        el.insertBefore(div, el.firstChild);
+      };
+      
+      var status = function(msg) {
+        document.getElementById('status').textContent = msg;
+      };
+      
+      // Check if libraries loaded
+      log('Checking libraries...');
+      if (typeof XLSX === 'undefined') {
+        log('ERROR: XLSX library not loaded', 'error');
+        status('ERROR: Excel library failed to load');
+        return;
+      }
+      log('XLSX library OK', 'success');
+      
+      if (typeof Addon === 'undefined') {
+        log('ERROR: Addon not found', 'error');
+        status('ERROR: Wealthica library failed to load');
+        return;
+      }
+      log('Addon class found', 'success');
+      
+      // Initialize addon
+      var addon = new Addon();
+      log('Addon instance created', 'success');
+      
+      var options = {};
+      
+      addon.on('init', function(opts) {
+        options = opts;
+        log('✓ CONNECTED TO WEALTHICA!', 'success');
+        status('✓ Ready to export');
+        document.getElementById('btn-transactions').disabled = false;
+        document.getElementById('btn-positions').disabled = false;
+        document.getElementById('btn-all').disabled = false;
+      });
+      
+      addon.on('update', function(opts) {
+        options = opts;
+        log('Filters updated');
+      });
+      
+      // Export transactions
+      document.getElementById('btn-transactions').onclick = function() {
+        log('Fetching transactions...');
+        status('Fetching...');
+        
+        addon.api.getTransactions({
+          from: options.fromDate || '2024-01-01',
+          to: options.toDate || new Date().toISOString().split('T')[0]
+        }).then(function(response) {
+          var txs = response.data || response;
+          log('Got ' + txs.length + ' transactions', 'success');
+          
+          var data = txs.map(function(tx) {
+            return {
+              Date: tx.date || '',
+              Type: tx.type || '',
+              Description: tx.description || '',
+              Symbol: tx.symbol || '',
+              Quantity: tx.quantity || '',
+              Price: tx.price || '',
+              Amount: tx.amount || '',
+              Currency: tx.currency || ''
+            };
+          });
+          
+          var ws = XLSX.utils.json_to_sheet(data);
+          var wb = XLSX.utils.book_new();
+          XLSX.utils.book_append_sheet(wb, ws, 'Transactions');
+          XLSX.writeFile(wb, 'Wealthica_Transactions.xlsx');
+          
+          log('✓ Downloaded Excel file!', 'success');
+          status('✓ Export complete');
+        }).catch(function(err) {
+          log('ERROR: ' + err.message, 'error');
+          status('Export failed');
+        });
+      };
+      
+      // Export positions
+      document.getElementById('btn-positions').onclick = function() {
+        log('Fetching positions...');
+        status('Fetching...');
+        
+        addon.api.getPositions({}).then(function(response) {
+          var pos = response.data || response;
+          log('Got ' + pos.length + ' positions', 'success');
+          
+          var data = pos.map(function(p) {
+            return {
+              Symbol: (p.security && p.security.symbol) || '',
+              Name: (p.security && p.security.name) || '',
+              Quantity: p.quantity || '',
+              'Market Value': p.market_value || '',
+              Currency: (p.security && p.security.currency) || ''
+            };
+          });
+          
+          var ws = XLSX.utils.json_to_sheet(data);
+          var wb = XLSX.utils.book_new();
+          XLSX.utils.book_append_sheet(wb, ws, 'Positions');
+          XLSX.writeFile(wb, 'Wealthica_Positions.xlsx');
+          
+          log('✓ Downloaded Excel file!', 'success');
+          status('✓ Export complete');
+        }).catch(function(err) {
+          log('ERROR: ' + err.message, 'error');
+          status('Export failed');
+        });
+      };
+      
+      // Export all
+      document.getElementById('btn-all').onclick = function() {
+        log('Fetching all data...');
+        status('Fetching...');
+        
+        Promise.all([
+          addon.api.getTransactions({ from: '2024-01-01' }),
+          addon.api.getPositions({})
+        ]).then(function(results) {
+          var txs = results[0].data || results[0];
+          var pos = results[1].data || results[1];
+          
+          log('Got ' + txs.length + ' transactions, ' + pos.length + ' positions', 'success');
+          
+          var txData = txs.map(function(tx) {
+            return { Date: tx.date || '', Type: tx.type || '', Symbol: tx.symbol || '', Amount: tx.amount || '' };
+          });
+          
+          var posData = pos.map(function(p) {
+            return { Symbol: (p.security && p.security.symbol) || '', Quantity: p.quantity || '', Value: p.market_value || '' };
+          });
+          
+          var wb = XLSX.utils.book_new();
+          XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(txData), 'Transactions');
+          XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(posData), 'Positions');
+          XLSX.writeFile(wb, 'Wealthica_Complete.xlsx');
+          
+          log('✓ Downloaded Excel file!', 'success');
+          status('✓ Export complete');
+        }).catch(function(err) {
+          log('ERROR: ' + err.message, 'error');
+          status('Export failed');
+        });
+      };
+      
+      log('Waiting for Wealthica connection...');
+      status('Waiting for connection...');
+    })();
+  </script>
 </body>
 </html>
