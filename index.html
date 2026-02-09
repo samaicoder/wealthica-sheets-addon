@@ -67,7 +67,7 @@
   <h2>📊 Wealthica Excel Exporter</h2>
   
   <div class="status">
-    <strong>Status:</strong> <span id="status">Initializing...</span>
+    <strong>Status:</strong> <span id="status">Loading libraries...</span>
   </div>
 
   <div class="button-group">
@@ -80,9 +80,13 @@
   <h3>Activity Log:</h3>
   <div id="log"></div>
 
-  <!-- Load required libraries -->
-  <script src="https://wealthica.github.io/wealthica.js/wealthica.js"></script>
+  <!-- Load Wealthica addon library -->
+  <script src="https://wealthica.github.io/wealthica.js/addon/addon.js"></script>
+  
+  <!-- Load Excel library -->
   <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+  
+  <!-- Load our app -->
   <script src="app.js"></script>
 </body>
 </html>
