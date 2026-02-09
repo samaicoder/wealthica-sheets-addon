@@ -19,7 +19,7 @@
 <body>
   <div class="container">
     <h2>📊 Wealthica Excel Exporter</h2>
-    <div id="status" class="status">Initializing...</div>
+    <div id="status" class="status">Loading...</div>
     
     <div>
       <button id="btn-transactions" disabled>📥 Download Transactions</button>
@@ -27,35 +27,42 @@
       <button id="btn-all" disabled>📥 Download Complete Export</button>
     </div>
     
-    <div id="result">Waiting for connection...</div>
+    <div id="result">Loading addon...</div>
   </div>
 
-  <!-- jQuery (same as example.html) -->
+  <!-- jQuery -->
   <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
   
-  <!-- Lodash (same as example.html) -->
+  <!-- Lodash -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/lodash.js/4.17.21/lodash.min.js"></script>
   
   <!-- XLSX for Excel -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   
   <!-- Wealthica Addon library -->
-  <script src="https://wealthica.github.io/wealthica.js/addon/addon.js"></script>
+  <script src="https://wealthica.github.io/wealthica.js/addon/addon.js" id="addon-script"></script>
   
   <script>
-    var addon, addonOptions;
-    
-    $(function () {
+    // Wait for addon.js to load
+    function initAddon() {
+      if (typeof Addon === 'undefined') {
+        $('#result').html('Waiting for Addon library... (if this persists, library failed to load)');
+        setTimeout(initAddon, 100);
+        return;
+      }
+      
+      $('#result').html('Addon library loaded. Initializing...');
+      
+      var addon, addonOptions;
+      
       addon = new Addon();
       
       addon.on('init', function (options) {
-        // Dashboard is ready
         addonOptions = options;
         $('#status').html('✓ Connected to Wealthica').attr('class', 'status ready');
         $('#result').html('Ready to export. Click a button above to download your data.');
         $('button').removeAttr('disabled');
       }).on('update', function (options) {
-        // Filters have been updated
         addonOptions = _.extend(addonOptions, options);
         $('#result').html('Filters updated. Ready to export.');
       });
@@ -69,7 +76,7 @@
         var query = getQueryFromOptions(addonOptions);
         
         addon.api.getTransactions(query).then(function (response) {
-          var transactions = response; // Response IS the array
+          var transactions = response;
           $('#result').html('✓ Fetched ' + transactions.length + ' transactions. Generating Excel file...');
           
           if (transactions.length === 0) {
@@ -79,7 +86,6 @@
             return;
           }
           
-          // Format for Excel
           var data = transactions.map(function(tx) {
             return {
               'Date': tx.date || '',
@@ -95,7 +101,6 @@
             };
           });
           
-          // Create Excel file
           var ws = XLSX.utils.json_to_sheet(data);
           var wb = XLSX.utils.book_new();
           XLSX.utils.book_append_sheet(wb, ws, 'Transactions');
@@ -121,7 +126,7 @@
         var query = getQueryFromOptions(addonOptions);
         
         addon.api.getPositions(query).then(function (response) {
-          var positions = response; // Response IS the array
+          var positions = response;
           $('#result').html('✓ Fetched ' + positions.length + ' positions. Generating Excel file...');
           
           if (positions.length === 0) {
@@ -131,7 +136,6 @@
             return;
           }
           
-          // Format for Excel
           var data = positions.map(function(p) {
             return {
               'Symbol': (p.security && p.security.symbol) || p.symbol || '',
@@ -147,7 +151,6 @@
             };
           });
           
-          // Create Excel file
           var ws = XLSX.utils.json_to_sheet(data);
           var wb = XLSX.utils.book_new();
           XLSX.utils.book_append_sheet(wb, ws, 'Positions');
@@ -181,7 +184,6 @@
           
           $('#result').html('✓ Fetched ' + transactions.length + ' transactions and ' + positions.length + ' positions. Generating Excel file...');
           
-          // Format transactions
           var txData = transactions.map(function(tx) {
             return {
               'Date': tx.date || '',
@@ -195,7 +197,6 @@
             };
           });
           
-          // Format positions
           var posData = positions.map(function(p) {
             return {
               'Symbol': (p.security && p.security.symbol) || '',
@@ -207,7 +208,6 @@
             };
           });
           
-          // Create multi-sheet Excel file
           var wb = XLSX.utils.book_new();
           XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(txData), 'Transactions');
           XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(posData), 'Positions');
@@ -224,7 +224,6 @@
         });
       });
       
-      // Helper function from example.html
       function getQueryFromOptions(options) {
         return {
           from: options.dateRangeFilter && options.dateRangeFilter[0],
@@ -234,6 +233,11 @@
           investments: options.investmentsFilter === 'all' ? null : options.investmentsFilter
         };
       }
+    }
+    
+    // Start when jQuery is ready
+    $(document).ready(function() {
+      initAddon();
     });
   </script>
 </body>
