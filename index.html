@@ -14,7 +14,7 @@
 </head>
 <body>
   <h2>📊 Wealthica Excel Exporter</h2>
-  <div id="status">Loading...</div>
+  <div id="status">Loading libraries...</div>
   <div>
     <button id="btn-transactions" disabled>Download Transactions</button>
     <button id="btn-positions" disabled>Download Positions</button>
@@ -25,12 +25,15 @@
   <!-- Excel library -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   
-  <!-- Wealthica addon - MUST load from their CDN -->
+  <!-- Wealthica addon library -->
   <script src="https://wealthica.github.io/wealthica.js/addon/addon.js"></script>
   
-  <!-- Our code -->
+  <!-- Our code - waits for everything to load -->
   <script>
     (function() {
+      var attempts = 0;
+      var maxAttempts = 50; // 5 seconds max
+      
       var log = function(msg, type) {
         var el = document.getElementById('log');
         var div = document.createElement('div');
@@ -43,149 +46,220 @@
         document.getElementById('status').textContent = msg;
       };
       
-      // Check if libraries loaded
-      log('Checking libraries...');
-      if (typeof XLSX === 'undefined') {
-        log('ERROR: XLSX library not loaded', 'error');
-        status('ERROR: Excel library failed to load');
-        return;
+      // Wait for libraries to load
+      function checkLibraries() {
+        attempts++;
+        
+        if (typeof XLSX === 'undefined') {
+          if (attempts < maxAttempts) {
+            setTimeout(checkLibraries, 100);
+            return;
+          }
+          log('ERROR: XLSX library failed to load', 'error');
+          status('ERROR: Excel library failed');
+          return;
+        }
+        
+        if (typeof Addon === 'undefined') {
+          if (attempts < maxAttempts) {
+            status('Loading Wealthica library... (' + attempts + ')');
+            setTimeout(checkLibraries, 100);
+            return;
+          }
+          log('ERROR: Addon library failed to load after ' + attempts + ' attempts', 'error');
+          status('ERROR: Wealthica library failed to load');
+          return;
+        }
+        
+        // Both libraries loaded!
+        log('✓ All libraries loaded (attempts: ' + attempts + ')', 'success');
+        initializeAddon();
       }
-      log('XLSX library OK', 'success');
       
-      if (typeof Addon === 'undefined') {
-        log('ERROR: Addon not found', 'error');
-        status('ERROR: Wealthica library failed to load');
-        return;
+      function initializeAddon() {
+        log('Initializing Wealthica addon...');
+        
+        var addon = new Addon();
+        var options = {};
+        
+        addon.on('init', function(opts) {
+          options = opts;
+          log('✓ CONNECTED TO WEALTHICA!', 'success');
+          status('✓ Ready to export');
+          document.getElementById('btn-transactions').disabled = false;
+          document.getElementById('btn-positions').disabled = false;
+          document.getElementById('btn-all').disabled = false;
+        });
+        
+        addon.on('update', function(opts) {
+          options = opts;
+          log('Filters updated');
+        });
+        
+        // Export transactions
+        document.getElementById('btn-transactions').onclick = function() {
+          this.disabled = true;
+          log('Fetching transactions...');
+          status('Fetching transactions...');
+          
+          addon.api.getTransactions({
+            from: options.fromDate || '2024-01-01',
+            to: options.toDate || new Date().toISOString().split('T')[0]
+          }).then(function(response) {
+            var txs = response.data || response;
+            log('✓ Fetched ' + txs.length + ' transactions', 'success');
+            
+            if (txs.length === 0) {
+              log('No transactions found', 'error');
+              status('No transactions to export');
+              document.getElementById('btn-transactions').disabled = false;
+              return;
+            }
+            
+            var data = txs.map(function(tx) {
+              return {
+                Date: tx.date || (tx.origin_date ? new Date(tx.origin_date).toISOString().split('T')[0] : ''),
+                Type: tx.type || '',
+                Description: tx.description || '',
+                Symbol: tx.symbol || tx.ticker || '',
+                Quantity: tx.quantity || '',
+                Price: tx.price || '',
+                Amount: tx.currency_amount || tx.amount || '',
+                Currency: tx.currency || '',
+                Institution: tx.institution || ''
+              };
+            });
+            
+            var ws = XLSX.utils.json_to_sheet(data);
+            var wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, 'Transactions');
+            XLSX.writeFile(wb, 'Wealthica_Transactions.xlsx');
+            
+            log('✓ Downloaded Wealthica_Transactions.xlsx', 'success');
+            status('✓ Export complete!');
+            document.getElementById('btn-transactions').disabled = false;
+          }).catch(function(err) {
+            log('ERROR: ' + err.message, 'error');
+            status('Export failed');
+            document.getElementById('btn-transactions').disabled = false;
+          });
+        };
+        
+        // Export positions
+        document.getElementById('btn-positions').onclick = function() {
+          this.disabled = true;
+          log('Fetching positions...');
+          status('Fetching positions...');
+          
+          addon.api.getPositions({
+            groups: options.groupsFilter,
+            institutions: options.institutionsFilter
+          }).then(function(response) {
+            var pos = response.data || response;
+            log('✓ Fetched ' + pos.length + ' positions', 'success');
+            
+            if (pos.length === 0) {
+              log('No positions found', 'error');
+              status('No positions to export');
+              document.getElementById('btn-positions').disabled = false;
+              return;
+            }
+            
+            var data = pos.map(function(p) {
+              return {
+                Symbol: (p.security && p.security.symbol) || p.symbol || '',
+                Name: (p.security && p.security.name) || p.name || '',
+                Type: (p.security && p.security.type) || p.type || '',
+                Quantity: p.quantity || '',
+                'Book Value': p.book_value || '',
+                'Market Value': p.market_value || p.value || '',
+                'Gain/Loss': p.gain_amount || '',
+                Currency: (p.security && p.security.currency) || p.currency || '',
+                Institution: p.institution || ''
+              };
+            });
+            
+            var ws = XLSX.utils.json_to_sheet(data);
+            var wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, 'Positions');
+            XLSX.writeFile(wb, 'Wealthica_Positions.xlsx');
+            
+            log('✓ Downloaded Wealthica_Positions.xlsx', 'success');
+            status('✓ Export complete!');
+            document.getElementById('btn-positions').disabled = false;
+          }).catch(function(err) {
+            log('ERROR: ' + err.message, 'error');
+            status('Export failed');
+            document.getElementById('btn-positions').disabled = false;
+          });
+        };
+        
+        // Export all
+        document.getElementById('btn-all').onclick = function() {
+          this.disabled = true;
+          log('Fetching all data...');
+          status('Fetching all data...');
+          
+          Promise.all([
+            addon.api.getTransactions({ 
+              from: options.fromDate || '2024-01-01',
+              to: options.toDate || new Date().toISOString().split('T')[0]
+            }),
+            addon.api.getPositions({
+              groups: options.groupsFilter,
+              institutions: options.institutionsFilter
+            })
+          ]).then(function(results) {
+            var txs = results[0].data || results[0];
+            var pos = results[1].data || results[1];
+            
+            log('✓ Fetched ' + txs.length + ' transactions, ' + pos.length + ' positions', 'success');
+            
+            var txData = txs.map(function(tx) {
+              return {
+                Date: tx.date || (tx.origin_date ? new Date(tx.origin_date).toISOString().split('T')[0] : ''),
+                Type: tx.type || '',
+                Description: tx.description || '',
+                Symbol: tx.symbol || tx.ticker || '',
+                Quantity: tx.quantity || '',
+                Price: tx.price || '',
+                Amount: tx.currency_amount || tx.amount || '',
+                Currency: tx.currency || ''
+              };
+            });
+            
+            var posData = pos.map(function(p) {
+              return {
+                Symbol: (p.security && p.security.symbol) || p.symbol || '',
+                Name: (p.security && p.security.name) || p.name || '',
+                Quantity: p.quantity || '',
+                'Market Value': p.market_value || p.value || '',
+                Currency: (p.security && p.security.currency) || p.currency || ''
+              };
+            });
+            
+            var wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(txData), 'Transactions');
+            XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(posData), 'Positions');
+            XLSX.writeFile(wb, 'Wealthica_Complete.xlsx');
+            
+            log('✓ Downloaded Wealthica_Complete.xlsx', 'success');
+            status('✓ Export complete!');
+            document.getElementById('btn-all').disabled = false;
+          }).catch(function(err) {
+            log('ERROR: ' + err.message, 'error');
+            status('Export failed');
+            document.getElementById('btn-all').disabled = false;
+          });
+        };
+        
+        log('Waiting for Wealthica to connect...');
+        status('Waiting for connection...');
       }
-      log('Addon class found', 'success');
       
-      // Initialize addon
-      var addon = new Addon();
-      log('Addon instance created', 'success');
-      
-      var options = {};
-      
-      addon.on('init', function(opts) {
-        options = opts;
-        log('✓ CONNECTED TO WEALTHICA!', 'success');
-        status('✓ Ready to export');
-        document.getElementById('btn-transactions').disabled = false;
-        document.getElementById('btn-positions').disabled = false;
-        document.getElementById('btn-all').disabled = false;
-      });
-      
-      addon.on('update', function(opts) {
-        options = opts;
-        log('Filters updated');
-      });
-      
-      // Export transactions
-      document.getElementById('btn-transactions').onclick = function() {
-        log('Fetching transactions...');
-        status('Fetching...');
-        
-        addon.api.getTransactions({
-          from: options.fromDate || '2024-01-01',
-          to: options.toDate || new Date().toISOString().split('T')[0]
-        }).then(function(response) {
-          var txs = response.data || response;
-          log('Got ' + txs.length + ' transactions', 'success');
-          
-          var data = txs.map(function(tx) {
-            return {
-              Date: tx.date || '',
-              Type: tx.type || '',
-              Description: tx.description || '',
-              Symbol: tx.symbol || '',
-              Quantity: tx.quantity || '',
-              Price: tx.price || '',
-              Amount: tx.amount || '',
-              Currency: tx.currency || ''
-            };
-          });
-          
-          var ws = XLSX.utils.json_to_sheet(data);
-          var wb = XLSX.utils.book_new();
-          XLSX.utils.book_append_sheet(wb, ws, 'Transactions');
-          XLSX.writeFile(wb, 'Wealthica_Transactions.xlsx');
-          
-          log('✓ Downloaded Excel file!', 'success');
-          status('✓ Export complete');
-        }).catch(function(err) {
-          log('ERROR: ' + err.message, 'error');
-          status('Export failed');
-        });
-      };
-      
-      // Export positions
-      document.getElementById('btn-positions').onclick = function() {
-        log('Fetching positions...');
-        status('Fetching...');
-        
-        addon.api.getPositions({}).then(function(response) {
-          var pos = response.data || response;
-          log('Got ' + pos.length + ' positions', 'success');
-          
-          var data = pos.map(function(p) {
-            return {
-              Symbol: (p.security && p.security.symbol) || '',
-              Name: (p.security && p.security.name) || '',
-              Quantity: p.quantity || '',
-              'Market Value': p.market_value || '',
-              Currency: (p.security && p.security.currency) || ''
-            };
-          });
-          
-          var ws = XLSX.utils.json_to_sheet(data);
-          var wb = XLSX.utils.book_new();
-          XLSX.utils.book_append_sheet(wb, ws, 'Positions');
-          XLSX.writeFile(wb, 'Wealthica_Positions.xlsx');
-          
-          log('✓ Downloaded Excel file!', 'success');
-          status('✓ Export complete');
-        }).catch(function(err) {
-          log('ERROR: ' + err.message, 'error');
-          status('Export failed');
-        });
-      };
-      
-      // Export all
-      document.getElementById('btn-all').onclick = function() {
-        log('Fetching all data...');
-        status('Fetching...');
-        
-        Promise.all([
-          addon.api.getTransactions({ from: '2024-01-01' }),
-          addon.api.getPositions({})
-        ]).then(function(results) {
-          var txs = results[0].data || results[0];
-          var pos = results[1].data || results[1];
-          
-          log('Got ' + txs.length + ' transactions, ' + pos.length + ' positions', 'success');
-          
-          var txData = txs.map(function(tx) {
-            return { Date: tx.date || '', Type: tx.type || '', Symbol: tx.symbol || '', Amount: tx.amount || '' };
-          });
-          
-          var posData = pos.map(function(p) {
-            return { Symbol: (p.security && p.security.symbol) || '', Quantity: p.quantity || '', Value: p.market_value || '' };
-          });
-          
-          var wb = XLSX.utils.book_new();
-          XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(txData), 'Transactions');
-          XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(posData), 'Positions');
-          XLSX.writeFile(wb, 'Wealthica_Complete.xlsx');
-          
-          log('✓ Downloaded Excel file!', 'success');
-          status('✓ Export complete');
-        }).catch(function(err) {
-          log('ERROR: ' + err.message, 'error');
-          status('Export failed');
-        });
-      };
-      
-      log('Waiting for Wealthica connection...');
-      status('Waiting for connection...');
+      // Start checking
+      status('Loading libraries...');
+      checkLibraries();
     })();
   </script>
 </body>
